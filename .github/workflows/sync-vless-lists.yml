@@ -1,0 +1,51 @@
+name: Sync VLESS lists
+
+on:
+  schedule:
+    # Every 30 minutes (UTC)
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-vless-lists
+  cancel-in-progress: true
+
+jobs:
+  fetch-filter-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download upstream lists
+        env:
+          LITE_URL: https://raw.githubusercontent.com/zieng2/wl/refs/heads/main/vless_lite.txt
+          UNIV_URL: https://raw.githubusercontent.com/zieng2/wl/refs/heads/main/vless_universal.txt
+        run: |
+          set -euo pipefail
+          curl -fsSL "$LITE_URL" -o /tmp/vless_lite.txt
+          curl -fsSL "$UNIV_URL" -o /tmp/vless_universal.txt
+
+      - name: Remove lines whose VLESS name contains Russia flag emoji
+        run: |
+          set -euo pipefail
+          mkdir -p wl
+          python .github/scripts/filter_russian_flag_name.py /tmp/vless_lite.txt wl/vless_lite.txt
+          python .github/scripts/filter_russian_flag_name.py /tmp/vless_universal.txt wl/vless_universal.txt
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wl/vless_lite.txt wl/vless_universal.txt
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "chore(wl): refresh VLESS lists (filter Russia flag in names)"
+          git push
